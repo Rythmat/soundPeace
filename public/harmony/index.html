@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harmony · A Sound Peace</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="harmony">
+    <main class="panel session">
+      <header class="page-header">
+        <span class="wordmark">A Sound Peace</span>
+        <span class="step">II · Harmony</span>
+      </header>
+
+      <div id="session">
+        <p class="prompt">
+          Make a recording of your voice that describes what your mind sounds like when it is at
+          peace. Take a moment to feel what this is like.
+        </p>
+        <p class="prompt-note">
+          You can only upload one clip of up to five seconds of audio for this.
+        </p>
+
+        <div id="clip-slot"></div>
+        <p id="status" class="status" role="status"></p>
+
+        <div class="page-actions">
+          <button id="upload" type="button" class="button" disabled>Upload</button>
+        </div>
+      </div>
+
+      <section id="thanks" class="thanks" hidden>
+        <h1>Thank you</h1>
+        <p>Your voice now may be featured in ‘A&nbsp;Sound&nbsp;Peace’</p>
+      </section>
+    </main>
+
+    <script type="module" src="/js/harmony.js"></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chaos · A Sound Peace</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="chaos">
+    <main class="panel session">
+      <header class="page-header">
+        <span class="wordmark">A Sound Peace</span>
+        <span class="step">I · Chaos</span>
+      </header>
+
+      <p class="prompt">
+        Make a recording of your voice that describes what your mind sounds like when it is in
+        chaos. Be as animated and uncomfortable as you like, using words or just noise.
+      </p>
+      <p class="prompt-note">You can upload up to five clips of up to five seconds of audio.</p>
+
+      <div id="recorder"></div>
+      <p id="status" class="status" role="status"></p>
+
+      <section class="clip-section">
+        <div class="section-header">
+          <h2>Your clips</h2>
+          <span id="clip-count" class="clip-count"></span>
+        </div>
+        <table class="clip-table">
+          <thead>
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">Clip</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="clip-rows"></tbody>
+        </table>
+      </section>
+
+      <div class="page-actions">
+        <button id="upload" type="button" class="button" disabled>Upload</button>
+      </div>
+    </main>
+
+    <script type="module" src="/js/chaos.js"></script>
+  </body>
+</html>
