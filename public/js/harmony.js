@@ -5,6 +5,7 @@ import {
   isRecordingSupported,
   prepareMicrophone,
 } from './audio.js';
+import { getDevice } from './device.js';
 import { requestConsent, uploadClips, wakeBackend } from './upload.js';
 
 const slot = document.getElementById('clip-slot');
@@ -61,15 +62,25 @@ function render() {
   uploadBtn.disabled = !clip;
 }
 
+function showThanks() {
+  sessionEl.hidden = true;
+  thanksEl.hidden = false;
+  document.body.classList.add('is-finished');
+}
+
 uploadBtn.addEventListener('click', () => {
   requestConsent(async () => {
-    await uploadClips('peace', [clip.blob]);
+    try {
+      await uploadClips('peace', [clip.blob]);
+    } catch (err) {
+      // Refused because this device already uploaded its peace clip (e.g. in another
+      // tab): there's nothing left to do here, so finish as if it had gone through.
+      if (!err.record?.harmonyUpload) throw err;
+    }
     uploaded = true;
     clip.player.destroy();
     closeMicrophone();
-    sessionEl.hidden = true;
-    thanksEl.hidden = false;
-    document.body.classList.add('is-finished');
+    showThanks();
   });
 });
 
@@ -77,10 +88,15 @@ window.addEventListener('beforeunload', (e) => {
   if (clip && !uploaded) e.preventDefault();
 });
 
-wakeBackend();
-if (isRecordingSupported()) {
-  prepareMicrophone();
+if (getDevice().harmonyUpload) {
+  // This device has already uploaded its peace clip: skip straight to the end.
+  showThanks();
 } else {
-  recorder.setDisabled(true, 'This browser cannot record audio. Try Chrome, Firefox or Safari.');
+  wakeBackend();
+  if (isRecordingSupported()) {
+    prepareMicrophone();
+  } else {
+    recorder.setDisabled(true, 'This browser cannot record audio. Try Chrome, Firefox or Safari.');
+  }
+  render();
 }
-render();

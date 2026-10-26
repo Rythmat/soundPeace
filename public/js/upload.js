@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './config.js';
+import { getDevice, saveUploadRecord } from './device.js';
 
 // Render's free tier puts idle services to sleep and they take a while to wake. Pinging
 // on page load wakes the API while the participant is still recording.
@@ -7,15 +8,23 @@ export function wakeBackend() {
 }
 
 // Uploads recorded blobs in one request. `category` is "chaos" or "peace" and ends up
-// at the start of each object name in the bucket.
+// at the start of each object name in the bucket. The backend answers with this
+// device's upload record, also when it refuses an upload for going over the limits;
+// that record is saved locally and attached to the thrown error as `err.record`.
 export async function uploadClips(category, blobs) {
   const form = new FormData();
   form.append('category', category);
+  form.append('deviceId', getDevice().id);
   blobs.forEach((blob, i) => form.append('audio', blob, `${category}-${i + 1}`));
 
   const res = await fetch(`${API_BASE_URL}/api/clips`, { method: 'POST', body: form });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || res.statusText);
+  if (body.record) saveUploadRecord(body.record);
+  if (!res.ok) {
+    const err = new Error(body.error || res.statusText);
+    err.record = body.record;
+    throw err;
+  }
   return body.ids;
 }
 
@@ -72,7 +81,7 @@ export function requestConsent(onConfirm) {
       await onConfirm();
       dialog.close();
     } catch (err) {
-      errorEl.textContent = `Upload failed: ${err.message}. Please try again.`;
+      errorEl.textContent = `Upload failed: ${err.message.replace(/\.$/, '')}. Please try again.`;
       setUploading(false);
     }
   });
