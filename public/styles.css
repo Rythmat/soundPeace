@@ -234,6 +234,8 @@ body.landing::before {
   color: var(--ink);
   font: 500 1rem var(--sans);
   cursor: pointer;
+  /* Recording starts on touch down, so the browser mustn't claim the touch for scrolling. */
+  touch-action: none;
 }
 
 .record-button svg {

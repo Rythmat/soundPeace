@@ -28,8 +28,10 @@ Each device can upload five chaos clips and one peace clip in total. The browser
 
 ## Recording
 
-Clips are raw 16-bit mono WAV at the device's sample rate, about 480 KB for 5 s.
+Clips are raw 16-bit mono WAV at the device's sample rate, about 500 KB for a full-length clip.
 
 - The browser's voice-call processing (noise suppression, echo cancellation and automatic gain) is turned off so that non-speech sound survives.
-- The microphone opens once per page, so Record starts capturing immediately.
-- Capture stops at exactly 5 s.
+- The microphone opens when `/chaos` or `/harmony` loads, asking for permission if it doesn't have it yet. From then on the capture worklet keeps the last 6 s of audio in a rolling buffer, in memory only. Audio leaves that buffer only when a clip is recorded.
+- A clip starts from the moment the button is pressed down, not when it's released, using the event's own timestamp, so a delay in handling the press costs no audio.
+- A clip ends when Stop is pressed or 5 s after the press, plus 0.2 s. It also keeps 0.05 s from before the press, so a full-length clip is 5.25 s. These margins cover the time sound takes to travel from the microphone to the capture code. Without them, the first and last moments would be cut off.
+- The first press can only start once the microphone is running, so if the permission prompt is still open, the clip starts when it's granted. The same applies if the browser held audio back until the first gesture on the page, which can happen when someone arrives directly on `/chaos` or `/harmony`.

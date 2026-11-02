@@ -1,5 +1,11 @@
 export const MAX_SECONDS = 5;
 
+// Sound takes a moment to get from the microphone to the capture code, so a clip keeps a
+// little audio either side of the presses that bound it. Without the tail, whatever was
+// still on its way when Stop was pressed or time ran out would be lost.
+const LEAD_IN_SECONDS = 0.05;
+const TAIL_SECONDS = 0.2;
+
 // The browser's voice-call processing (noise suppression, echo cancellation, automatic
 // gain) strips out hisses, breaths and other non-speech sound, so record the raw signal.
 const MIC_CONSTRAINTS = {
@@ -18,6 +24,18 @@ export function formatSeconds(seconds) {
 }
 
 let micPromise = null;
+let micContext = null;
+
+function wakeMicContext() {
+  if (micContext && micContext.state !== 'running') micContext.resume();
+}
+
+// Browsers can hold an AudioContext suspended until the page sees a gesture, and suspend
+// it again later (iOS does during a phone call). No audio is captured while it's suspended,
+// so every gesture is a chance to get it running before Record is pressed.
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown', 'click']) {
+  window.addEventListener(type, wakeMicContext, { capture: true });
+}
 
 // Opens the microphone once per page and keeps it running, so pressing Record starts
 // capturing immediately instead of losing the first moments while the device wakes up.
@@ -25,38 +43,45 @@ function openMicrophone() {
   if (micPromise) return micPromise;
   // Created before any await so it's still inside the click's user gesture (Safari).
   const context = new AudioContext();
+  micContext = context;
   micPromise = (async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
     stream.getAudioTracks()[0].addEventListener('ended', () => {
       micPromise = null;
     });
     await context.audioWorklet.addModule('/js/capture-processor.js');
-    const node = new AudioWorkletNode(context, 'capture-processor');
+    const node = new AudioWorkletNode(context, 'capture-processor', {
+      // Enough to hold the longest clip, with room to spare for a slow main thread.
+      processorOptions: { bufferSeconds: MAX_SECONDS + 1 },
+    });
     context.createMediaStreamSource(stream).connect(node);
     node.connect(context.destination);
-    return { stream, context, node };
+    // Some browsers let the context run without a gesture once the microphone is open.
+    wakeMicContext();
+    return { stream, context, node, openedAt: performance.now() };
   })();
   micPromise.catch(() => {
     micPromise = null;
+    micContext = null;
     context.close();
   });
   return micPromise;
 }
 
-// Opens the microphone on page load when permission was already granted (e.g. on
-// /harmony after /chaos), so even the first recording starts instantly.
+// Opens the microphone when a recording page loads, asking for permission if need be, so
+// that it's already running when Record is first pressed.
 export async function prepareMicrophone() {
   try {
-    const status = await navigator.permissions.query({ name: 'microphone' });
-    if (status.state === 'granted') await openMicrophone();
+    await openMicrophone();
   } catch {
-    // No "microphone" permission query in this browser; it opens on the first press.
+    // Permission was refused or dismissed; the next press asks again and reports any error.
   }
 }
 
 export async function closeMicrophone() {
   const mic = await micPromise?.catch(() => null);
   micPromise = null;
+  micContext = null;
   if (!mic) return;
   mic.stream.getTracks().forEach((t) => t.stop());
   mic.context.close();
@@ -88,11 +113,28 @@ function encodeWav(samples, sampleRate) {
   return new Blob([view.buffer], { type: 'audio/wav' });
 }
 
-// Records one clip. `done` resolves with { blob, url, duration } when stop() is called
-// or exactly maxSeconds of audio has been captured, whichever comes first.
-export async function startRecording({ maxSeconds = MAX_SECONDS, onProgress } = {}) {
-  const { context, node } = await openMicrophone();
-  if (context.state !== 'running') await context.resume();
+// The audio clock's frame at `time` on the performance.now() clock.
+function frameAt(context, time) {
+  const secondsAgo = (performance.now() - time) / 1000;
+  return Math.round((context.currentTime - secondsAgo) * context.sampleRate);
+}
+
+// Records one clip starting from `pressedAt`, a performance.now() time that may already
+// have passed. `done` resolves with { blob, url, duration } when stop(stoppedAt) is called
+// or maxSeconds (at most MAX_SECONDS) has run out, whichever comes first.
+export async function startRecording({
+  maxSeconds = MAX_SECONDS,
+  pressedAt = performance.now(),
+  onProgress,
+} = {}) {
+  const { context, node, openedAt } = await openMicrophone();
+  // There's no audio from before the microphone was open and running, so a press that came
+  // earlier (while the permission prompt was up, say) starts the clip at that point instead.
+  let startedAt = Math.max(pressedAt, openedAt);
+  if (context.state !== 'running') {
+    await context.resume();
+    startedAt = performance.now();
+  }
 
   let ticker = 0;
   const done = new Promise((resolve) => {
@@ -103,13 +145,24 @@ export async function startRecording({ maxSeconds = MAX_SECONDS, onProgress } = 
     };
   });
 
-  node.port.postMessage({ type: 'start', maxSamples: Math.round(maxSeconds * context.sampleRate) });
-  const startedAt = performance.now();
+  const startFrame = frameAt(context, startedAt);
+  const tailFrames = Math.round(TAIL_SECONDS * context.sampleRate);
+  node.port.postMessage({
+    type: 'start',
+    startFrame: startFrame - Math.round(LEAD_IN_SECONDS * context.sampleRate),
+    endFrame: startFrame + Math.round(maxSeconds * context.sampleRate) + tailFrames,
+  });
   ticker = setInterval(() => {
     onProgress?.(Math.min((performance.now() - startedAt) / 1000, maxSeconds));
   }, 50);
 
-  return { stop: () => node.port.postMessage({ type: 'stop' }), done };
+  return {
+    stop(stoppedAt = performance.now()) {
+      clearInterval(ticker);
+      node.port.postMessage({ type: 'stop', endFrame: frameAt(context, stoppedAt) + tailFrames });
+    },
+    done,
+  };
 }
 
 // Round record/stop button with a progress ring. Calls onClip(clip) with each finished
@@ -142,14 +195,14 @@ export function createRecordButton({ maxSeconds = MAX_SECONDS, onClip, onError, 
     hint.textContent = `${formatSeconds(seconds)} / ${formatSeconds(maxSeconds)}`;
   }
 
-  button.addEventListener('click', async () => {
-    if (session) return session.stop();
+  async function press(pressedAt) {
+    if (session) return session.stop(pressedAt);
     if (starting) return;
 
     starting = true;
     label.textContent = 'Starting…';
     try {
-      session = await startRecording({ maxSeconds, onProgress: setProgress });
+      session = await startRecording({ maxSeconds, pressedAt, onProgress: setProgress });
     } catch (err) {
       label.textContent = 'Record';
       onError?.(err);
@@ -171,6 +224,23 @@ export function createRecordButton({ maxSeconds = MAX_SECONDS, onClip, onError, 
     hint.textContent = idleHint;
     onClip(clip);
     onStateChange?.(false);
+  }
+
+  // A click only fires once the button is released, which is too late to start recording,
+  // so a pointer acts on the press itself. Keyboards and screen readers fire only the click.
+  let pressedByPointer = false;
+  button.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || button.disabled) return;
+    pressedByPointer = true;
+    press(event.timeStamp);
+  });
+  button.addEventListener('click', (event) => {
+    if (!pressedByPointer) press(event.timeStamp);
+    pressedByPointer = false;
+  });
+  // A pointer released off the button never clicks; that mustn't swallow the next key press.
+  button.addEventListener('keydown', () => {
+    pressedByPointer = false;
   });
 
   return {
