@@ -7,6 +7,59 @@ export function wakeBackend() {
   fetch(`${API_BASE_URL}/healthz`).catch(() => {});
 }
 
+// An upload is abandoned, so the participant can try again, once it stops making
+// progress: nothing sent for this long, or no answer for this long after it's all sent.
+// A slow connection that keeps sending is never cut off.
+const SEND_STALL_MS = 30_000;
+const ANSWER_TIMEOUT_MS = 60_000;
+
+let lastAttempt = { blobs: [], id: null };
+
+// Retrying the same clips reuses their upload ID, so the backend recognises a retry of an
+// upload that went through but whose answer never arrived, and doesn't store it twice.
+function uploadIdFor(blobs) {
+  const same =
+    blobs.length === lastAttempt.blobs.length && blobs.every((b, i) => b === lastAttempt.blobs[i]);
+  if (!same) lastAttempt = { blobs, id: crypto.randomUUID() };
+  return lastAttempt.id;
+}
+
+// POSTs a form and resolves with { ok, status, statusText, body }. Uses XMLHttpRequest
+// rather than fetch because only it reports upload progress, which is how a stall is
+// told apart from a slow connection.
+function post(url, form) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let timer = 0;
+    const giveUpAfter = (ms) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        xhr.abort();
+        reject(new Error('The connection stalled'));
+      }, ms);
+    };
+    xhr.upload.addEventListener('progress', () => giveUpAfter(SEND_STALL_MS));
+    xhr.upload.addEventListener('load', () => giveUpAfter(ANSWER_TIMEOUT_MS));
+    xhr.addEventListener('load', () => {
+      clearTimeout(timer);
+      resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        statusText: xhr.statusText,
+        body: xhr.response ?? {},
+      });
+    });
+    xhr.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error("Couldn't reach the server"));
+    });
+    xhr.open('POST', url);
+    xhr.responseType = 'json';
+    xhr.send(form);
+    giveUpAfter(SEND_STALL_MS);
+  });
+}
+
 // Uploads recorded blobs in one request. `category` is "chaos" or "peace" and ends up
 // at the start of each object name in the bucket. The backend answers with this
 // device's upload record, also when it refuses an upload for going over the limits;
@@ -15,13 +68,14 @@ export async function uploadClips(category, blobs) {
   const form = new FormData();
   form.append('category', category);
   form.append('deviceId', getDevice().id);
+  form.append('uploadId', uploadIdFor(blobs));
   blobs.forEach((blob, i) => form.append('audio', blob, `${category}-${i + 1}`));
 
-  const res = await fetch(`${API_BASE_URL}/api/clips`, { method: 'POST', body: form });
-  const body = await res.json().catch(() => ({}));
+  const res = await post(`${API_BASE_URL}/api/clips`, form);
+  const { body } = res;
   if (body.record) saveUploadRecord(body.record);
   if (!res.ok) {
-    const err = new Error(body.error || res.statusText);
+    const err = new Error(body.error || res.statusText || `The server answered ${res.status}`);
     err.record = body.record;
     throw err;
   }

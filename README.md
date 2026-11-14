@@ -22,7 +22,7 @@ Each device can upload five chaos clips and one peace clip in total. The browser
 - `public/js/audio.js`: microphone capture, WAV encoding, the record button, and the clip player with its timeline.
 - `public/js/capture-processor.js`: the AudioWorklet that copies microphone samples on the audio thread.
 - `public/js/device.js`: the random device ID and the local copy of its upload record.
-- `public/js/upload.js`: the upload request, the consent dialog, and the backend wake-up ping.
+- `public/js/upload.js`: the upload request, the consent dialog, and the backend wake-up ping. An upload is abandoned with an error if nothing is sent for 30 s, or if no answer arrives within 60 s of the last byte, so a stalled connection never leaves the dialog stuck. Retrying the same clips sends the same upload ID, so the backend doesn't store an upload twice when only its answer was lost.
 - `public/js/chaos.js`, `public/js/harmony.js`, `public/js/landing.js`: the logic for each page.
 - `scripts/write-config.mjs`: the build step that writes `config.js` from `API_BASE_URL`.
 
