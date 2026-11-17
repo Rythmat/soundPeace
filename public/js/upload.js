@@ -1,5 +1,4 @@
 import { API_BASE_URL } from './config.js';
-import { getDevice, saveUploadRecord } from './device.js';
 
 // Render's free tier puts idle services to sleep and they take a while to wake. Pinging
 // on page load wakes the API while the participant is still recording.
@@ -61,24 +60,15 @@ function post(url, form) {
 }
 
 // Uploads recorded blobs in one request. `category` is "chaos" or "peace" and ends up
-// at the start of each object name in the bucket. The backend answers with this
-// device's upload record, also when it refuses an upload for going over the limits;
-// that record is saved locally and attached to the thrown error as `err.record`.
+// at the start of each object name in the bucket.
 export async function uploadClips(category, blobs) {
   const form = new FormData();
   form.append('category', category);
-  form.append('deviceId', getDevice().id);
   form.append('uploadId', uploadIdFor(blobs));
   blobs.forEach((blob, i) => form.append('audio', blob, `${category}-${i + 1}`));
 
-  const res = await post(`${API_BASE_URL}/api/clips`, form);
-  const { body } = res;
-  if (body.record) saveUploadRecord(body.record);
-  if (!res.ok) {
-    const err = new Error(body.error || res.statusText || `The server answered ${res.status}`);
-    err.record = body.record;
-    throw err;
-  }
+  const { ok, status, statusText, body } = await post(`${API_BASE_URL}/api/clips`, form);
+  if (!ok) throw new Error(body.error || statusText || `The server answered ${status}`);
   return body.ids;
 }
 

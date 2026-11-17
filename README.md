@@ -10,10 +10,7 @@ This is the static site for *A Sound Peace*. Participants record short voice cli
 
 Clips stay in the browser until the participant confirms the upload.
 
-Each device can upload five chaos clips and one peace clip in total. The browser stores a random ID and its upload record in `localStorage` under `soundPeace.device`, as `{ id, chaosUploads, harmonyUpload }`.
-- `/chaos` offers only the clips that are left ("up to three clips"). Once all five have been uploaded, Begin goes straight to `/harmony`, and visiting `/chaos` redirects there.
-- Once the peace clip is uploaded, `/harmony` shows the thank-you tile straight away.
-- The backend enforces the limits, and every upload response brings back its record. That keeps the local copy in sync even if another tab has uploaded in the meantime.
+Each visit can upload up to five chaos clips and one peace clip. Nothing is remembered between visits, so anyone can come back and go through both pages again.
 
 ## Layout
 
@@ -21,7 +18,6 @@ Each device can upload five chaos clips and one peace clip in total. The browser
 - `public/js/config.js`: the backend URL. It defaults to `http://localhost:3000`, and `npm run build` rewrites it.
 - `public/js/audio.js`: microphone capture, WAV encoding, the record button, and the clip player with its timeline.
 - `public/js/capture-processor.js`: the AudioWorklet that copies microphone samples on the audio thread.
-- `public/js/device.js`: the random device ID and the local copy of its upload record.
 - `public/js/upload.js`: the upload request, the consent dialog, and the backend wake-up ping. An upload is abandoned with an error if nothing is sent for 30 s, or if no answer arrives within 60 s of the last byte, so a stalled connection never leaves the dialog stuck. Retrying the same clips sends the same upload ID, so the backend doesn't store an upload twice when only its answer was lost.
 - `public/js/chaos.js`, `public/js/harmony.js`, `public/js/landing.js`: the logic for each page.
 - `scripts/write-config.mjs`: the build step that writes `config.js` from `API_BASE_URL`.

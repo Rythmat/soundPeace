@@ -5,7 +5,6 @@ import {
   isRecordingSupported,
   prepareMicrophone,
 } from './audio.js';
-import { getDevice } from './device.js';
 import { requestConsent, uploadClips, wakeBackend } from './upload.js';
 
 const slot = document.getElementById('clip-slot');
@@ -70,13 +69,7 @@ function showThanks() {
 
 uploadBtn.addEventListener('click', () => {
   requestConsent(async () => {
-    try {
-      await uploadClips('peace', [clip.blob]);
-    } catch (err) {
-      // Refused because this device already uploaded its peace clip (e.g. in another
-      // tab): there's nothing left to do here, so finish as if it had gone through.
-      if (!err.record?.harmonyUpload) throw err;
-    }
+    await uploadClips('peace', [clip.blob]);
     uploaded = true;
     clip.player.destroy();
     closeMicrophone();
@@ -88,15 +81,10 @@ window.addEventListener('beforeunload', (e) => {
   if (clip && !uploaded) e.preventDefault();
 });
 
-if (getDevice().harmonyUpload) {
-  // This device has already uploaded its peace clip: skip straight to the end.
-  showThanks();
+wakeBackend();
+if (isRecordingSupported()) {
+  prepareMicrophone();
 } else {
-  wakeBackend();
-  if (isRecordingSupported()) {
-    prepareMicrophone();
-  } else {
-    recorder.setDisabled(true, 'This browser cannot record audio. Try Chrome, Firefox or Safari.');
-  }
-  render();
+  recorder.setDisabled(true, 'This browser cannot record audio. Try Chrome, Firefox or Safari.');
 }
+render();
